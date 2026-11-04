@@ -1386,9 +1386,19 @@ const ruleToUse = fullMatch || codeMatch2;
 
 let campusKey = ruleToUse?.campus || null;
 if (!campusKey) {
-    if (campusDigit === '1') campusKey = (school === 'high') ? 'yangji10' : 'yangji5';
+    if (code === 'HT') {
+        if (campusDigit === '2') campusKey = 'danji10';
+        else campusKey = 'yangji5';
+    } else if (campusDigit === '1') campusKey = (school === 'high') ? 'yangji10' : 'yangji5';
     else if (campusDigit === '2') campusKey = 'danji10';
     else campusKey = 'yangji5';
+}
+if (code === 'HT') {
+    if (campusDigit === '2' || className.startsWith('HT2')) {
+        campusKey = 'danji10';
+    } else {
+        campusKey = 'yangji5';
+    }
 }
 
 let lessonDays = ruleToUse?.days || null;
