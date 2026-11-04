@@ -1130,8 +1130,8 @@ function updateAttendanceTimeOptions(school) {
     }
 let schoolCodeMap = {
     elem: ['PI', 'PA', 'PX'],
-    mid:  ['I', 'A', 'AX', 'EX', 'SP'],
-    high: ['HA', 'HX', 'HS']
+    mid:  ['I', 'A', 'AX', 'EX', 'SP', 'HT'],
+    high: ['HA', 'HX', 'HS', 'HT']
 };
 
 /* ▼▼▼ 추가: 지침 텍스트에서 학부별 반 코드 목록을 읽어와 갱신 ▼▼▼ */
@@ -1176,12 +1176,15 @@ function loadSchoolCodesFromGuideline() {
     if (found.mid)  schoolCodeMap.mid  = found.mid;
     if (found.high) schoolCodeMap.high = found.high;
 
-    // 고등 필수 코드(HA/HX/HS)는 항상 고등 보장
-    ['HA', 'HX', 'HS'].forEach(c => {
+    // 고등 필수 코드(HA/HX/HS/HT)는 항상 고등 보장 + HT 5:10,7:10
+    ['HA', 'HX', 'HS', 'HT'].forEach(c => {
         if (!schoolCodeMap.high.includes(c)) schoolCodeMap.high.push(c);
-        schoolCodeMap.mid  = schoolCodeMap.mid.filter(x => x !== c);
+        if (c !== 'HT') {
+            schoolCodeMap.mid  = schoolCodeMap.mid.filter(x => x !== c);
+        }
         schoolCodeMap.elem = schoolCodeMap.elem.filter(x => x !== c);
     });
+    if (!schoolCodeMap.mid.includes('HT')) schoolCodeMap.mid.push('HT');
 }
 
 
@@ -1364,10 +1367,17 @@ function parseClassInfo(rawClassName) {
     const dayDigit    = digits[2];
 
     let school = null;
-    for (const [key, codes] of Object.entries(schoolCodeMap)) {
-        if (codes.includes(code)) { school = key; break; }
+    if (['HT','HA','HX','HS'].includes(code)) {
+        school = 'high';
+    } else {
+        for (const [key, codes] of Object.entries(schoolCodeMap)) {
+            if (codes.includes(code)) { school = key; break; }
+        }
     }
-    if (!school) return null;
+    if (!school) {
+        if (code.startsWith('HT')) school = 'high';
+        else return null;
+    }
 
 const guidelineRules = parseGuidelineRules();
 const fullMatch = guidelineRules[className] || null;
@@ -1397,14 +1407,26 @@ function handleClassNameInput() {
     const rawClassName = document.getElementById('classNameInput').value || "";
     const classInfo = parseClassInfo(rawClassName);
     if (classInfo) {
+        const isHT = classInfo.code === 'HT' || rawClassName.toUpperCase().startsWith('HT');
         const timeKey = classInfo.code === 'KS131' ? 'ks131' :
-                        classInfo.code === 'KS132' ? 'ks132' : classInfo.school;
+                        classInfo.code === 'KS132' ? 'ks132' : (isHT ? 'high' : classInfo.school);
         updateAttendanceTimeOptions(timeKey);
-        const tuitionKey = (classInfo.code === 'KS131' || classInfo.code === 'KS132') ? 'ks' : classInfo.school;
+        const tuitionKey = (classInfo.code === 'KS131' || classInfo.code === 'KS132') ? 'ks' : (isHT ? 'mid' : classInfo.school);
         updateTuitionDropdownOptions(tuitionKey);
         const vocaWrap = document.getElementById('vocaGroupWrap');
-        vocaWrap.style.display = (classInfo.school === 'mid') ? 'block' : 'none';
-    // KS반은 제본 선택창 숨기기 (요소가 있을 때만)
+        const vocaSelect = document.getElementById('vocaBookType');
+        vocaWrap.style.display = (classInfo.school === 'mid' || isHT) ? 'block' : 'none';
+        if (isHT && vocaSelect) {
+            vocaSelect.innerHTML = `
+                <option value="prep">싹쓰리 PREP (10,000원)</option>
+                <option value="level">싹쓰리 LEVEL (10,000원)</option>
+            `;
+        } else if (!isHT && vocaSelect) {
+            vocaSelect.innerHTML = `
+                <option value="impact">임팩트보카 (8,000원)</option>
+                <option value="prep">싹쓰리 Prep (10,000원)</option>
+            `;
+        }
         const printWrap = document.getElementById('printOptionWrap');
         if (printWrap) {
             printWrap.style.display = (classInfo.school === 'ks') ? 'none' : 'block';
@@ -1570,10 +1592,23 @@ if (ruleForBook?.bookText) {
     let bookText = ruleForBook.bookText;
     let calculatedBookPrice = 0;
 
-    // 중등: 보카 교재 치환
-    if (school === 'mid') {
+    // 중등/HT: 보카 교재 치환
+    if (school === 'mid' || className.startsWith('HT')) {
         const vocaEl = document.getElementById('vocaBookType');
-        if (vocaEl && vocaEl.value === 'prep') {
+        const isHTForVoca = className.startsWith('HT');
+        if (isHTForVoca && vocaEl) {
+            if (vocaEl.value === 'prep') {
+                bookText = bookText.replace(/임팩트[\s]*보카[\s]*[\d,]+원/g, '싹쓰리 PREP 10,000원');
+                bookText = bookText.replace(/어휘[\s]*텍스트북[\s]*:[\s]*임팩트 보카[\s]*[\d,]+원/g, '어휘 텍스트북: 싹쓰리 PREP 10,000원');
+                calculatedBookPrice = (ruleForBook.bookPrice - 8000) + 10000;
+            } else if (vocaEl.value === 'level') {
+                bookText = bookText.replace(/임팩트[\s]*보카[\s]*[\d,]+원/g, '싹쓰리 LEVEL 10,000원');
+                bookText = bookText.replace(/어휘[\s]*텍스트북[\s]*:[\s]*임팩트 보카[\s]*[\d,]+원/g, '어휘 텍스트북: 싹쓰리 LEVEL 10,000원');
+                calculatedBookPrice = (ruleForBook.bookPrice - 8000) + 10000;
+            } else {
+                calculatedBookPrice = ruleForBook.bookPrice || 0;
+            }
+        } else if (vocaEl && vocaEl.value === 'prep') {
             bookText = bookText.replace(/임팩트[\s]*보카[\s]*[\d,]+원/g, '싹쓰리 Prep 10,000원');
             calculatedBookPrice = (ruleForBook.bookPrice - 8000) + 10000;
         } else {
@@ -1583,10 +1618,48 @@ if (ruleForBook?.bookText) {
         calculatedBookPrice = ruleForBook.bookPrice || 0;
     }
 
-    // ── 무상 제본 처리 + 중등 독해/고수 완전 제거 ──
-    if (printOption === 'print') {
-        const midRemoveCodes = ['A', 'AX', 'EX', 'SP', 'WE'];
-        const isMidRemoveClass = midRemoveCodes.includes(classCode);
+    // ── 무상 제본 처리 + 중등 독해/고수 완전 제거 + HT 특수 처리 (HT는 제본 안함이어도 강제 제본) ──
+    const midRemoveCodes = ['A', 'AX', 'EX', 'SP', 'WE'];
+    const isMidRemoveClass = midRemoveCodes.includes(classCode);
+    const isHTClass = (classCode === 'HT' || className.startsWith('HT'));
+
+    if (isHTClass) {
+        // HT: 어휘 제외 나머지 제본, 써머리노트 5,000원, 독해/실전 추가
+        const lines = bookText.split('\n');
+        const filteredLines = [];
+        let htBookPrice = 0;
+        lines.forEach(line => {
+            const t = line.replace(/\t/g, '').trim();
+            if (!t) { filteredLines.push(line); return; }
+            if (t.includes('어휘')) {
+                filteredLines.push(line);
+                const priceMatch = t.match(/([\d,]+)원/);
+                if (priceMatch) {
+                    htBookPrice += parseInt(priceMatch[1].replace(/,/g, '')) || 0;
+                }
+            } else if (t.includes('써머리노트')) {
+                // 써머리노트: 5,000원으로 수정
+                let summaryLine = line.replace(/[\s:：]*[\d,]+원/g, '').trimEnd();
+                summaryLine = summaryLine.replace(/:\s*제본으로 제공/g, '').trimEnd();
+                summaryLine = summaryLine + ' : 5,000원';
+                filteredLines.push(summaryLine);
+                htBookPrice += 5000;
+            } else {
+                // 어휘, 써머리 제외 나머지는 제본으로 제공
+                let noPriceLine = line.replace(/[\s:：]*[\d,]+원/g, '').trimEnd();
+                if (!noPriceLine.includes('제본')) {
+                    noPriceLine = noPriceLine + ' : 제본으로 제공';
+                }
+                filteredLines.push(noPriceLine);
+            }
+        });
+        // 독해 고난도유형, 실전 수능실전어법 추가
+        filteredLines.push('▶독해 고난도유형 : 10,000원');
+        filteredLines.push('▶실전 수능실전어법 : 12,000원');
+        htBookPrice += 10000 + 12000;
+        customBookListText = filteredLines.join('\n').trim();
+        totalBookPrice = htBookPrice;
+    } else if (printOption === 'print') {
         if (school === 'high') {
             bookText = bookText
                 .split('\n')
