@@ -1634,28 +1634,24 @@ if (ruleForBook?.bookText) {
     const isHTClass = (classCode === 'HT' || className.startsWith('HT'));
 
     if (isHTClass) {
-        // HT: 어휘 제외 나머지 제본, 써머리노트 5,000원, 독해/실전 추가
+        // HT: 써머리노트 제거, 어휘 제외 나머지 제본, 독해/실전 추가
         const lines = bookText.split('\n');
         const filteredLines = [];
         let htBookPrice = 0;
         lines.forEach(line => {
             const t = line.replace(/\t/g, '').trim();
             if (!t) { filteredLines.push(line); return; }
+            if (t.includes('써머리노트')) {
+                // HT는 써머리노트 아예 제거
+                return;
+            }
             if (t.includes('어휘')) {
                 filteredLines.push(line);
                 const priceMatch = t.match(/([\d,]+)원/);
                 if (priceMatch) {
                     htBookPrice += parseInt(priceMatch[1].replace(/,/g, '')) || 0;
                 }
-            } else if (t.includes('써머리노트')) {
-                // 써머리노트: 5,000원으로 수정
-                let summaryLine = line.replace(/[\s:：]*[\d,]+원/g, '').trimEnd();
-                summaryLine = summaryLine.replace(/:\s*제본으로 제공/g, '').trimEnd();
-                summaryLine = summaryLine + ' : 5,000원';
-                filteredLines.push(summaryLine);
-                htBookPrice += 5000;
             } else {
-                // 어휘, 써머리 제외 나머지는 제본으로 제공
                 let noPriceLine = line.replace(/[\s:：]*[\d,]+원/g, '').trimEnd();
                 if (!noPriceLine.includes('제본')) {
                     noPriceLine = noPriceLine + ' : 제본으로 제공';
@@ -1663,7 +1659,6 @@ if (ruleForBook?.bookText) {
                 filteredLines.push(noPriceLine);
             }
         });
-        // 독해 고난도유형, 실전 수능실전어법 추가
         filteredLines.push('▶독해 고난도유형 : 10,000원');
         filteredLines.push('▶실전 수능실전어법 : 12,000원');
         htBookPrice += 10000 + 12000;
